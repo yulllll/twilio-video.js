@@ -132,7 +132,8 @@
     "@twilio/webrtc": "4.3.1",
     "backoff": "^2.5.0",
     "ws": "^3.3.1",
-    "xmlhttprequest": "^1.8.0"
+    "xmlhttprequest": "^1.8.0",
+    "fast-json-patch": "^3.0.0-1"
   },
   "browser": {
     "ws": "./src/ws.js",

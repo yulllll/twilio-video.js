@@ -12,7 +12,7 @@ const { defer } = require('../../../../../lib/util');
 
 const { combinations, waitForSometime } = require('../../../../lib/util');
 
-describe('TwilioConnectionTransport', () => {
+describe.only('TwilioConnectionTransport', () => {
   combinations([
     [true, false], // iceServers
     [true, false], // networkQuality
