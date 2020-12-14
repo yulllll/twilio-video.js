@@ -19,7 +19,7 @@ twilio-video.js allows you to add real-time voice and video to your web apps.
 * [Quickstart and Examples](//github.com/twilio/video-quickstart-js/tree/master)
 * [React-based Multi-party Video App](https://github.com/twilio/twilio-video-app-react)
 
-Feel free to open a GitHub issue for suggested improvements or feature requests. If you need technical support, contact [help@twilio.com](mailto:help@twilio.com).
+**We want your feedback!** Please feel free to open a [GitHub issue](https://github.com/twilio/twilio-video.js/issues) for suggested improvements or feature requests. If you need technical support, contact [help@twilio.com](mailto:help@twilio.com).
 
 Browser Support
 ---------------
