@@ -1,7 +1,8 @@
-/* eslint-disable no-undefined */
+/* eslint-disable no-console, no-undefined */
 'use strict';
 
 const assert = require('assert');
+const { EventEmitter } = require('events');
 const { getUserMedia } = require('@twilio/webrtc');
 
 const connect = require('../../../lib/connect');
@@ -30,11 +31,13 @@ const getToken = require('../../lib/token');
 const {
   capitalize,
   combinationContext,
+  createFileAudioMedia,
   isRTCRtpSenderParamsSupported,
   participantsConnected,
   pairs,
   randomName,
   setup,
+  setupAliceAndBob,
   smallVideoConstraints,
   tracksSubscribed,
   tracksPublished,
@@ -201,6 +204,43 @@ describe('connect', function() {
         }
         assert.equal(error, null);
       });
+    });
+  });
+
+  describe('signaling events', () => {
+    let sid;
+    let room = null;
+    beforeEach(async () => {
+      sid = await createRoom(randomName(), defaults.topology);
+    });
+
+    afterEach(async () => {
+      if (room) {
+        room.disconnect();
+        room = null;
+      }
+      await  completeRoom(sid);
+    });
+
+    it('are emitted on eventListener specified', async () => {
+      const eventListener = new EventEmitter();
+      const signalingEventsFired = [];
+      eventListener.on('event', event => {
+        if (event.group === 'signaling') {
+          assert(typeof event.elapsedTime === 'number');
+          assert(typeof event.timestamp === 'number');
+          assert(typeof event.level === 'string');
+          assert(typeof event.name === 'string');
+          signalingEventsFired.push(event);
+        }
+      });
+      const token = getToken(randomName());
+      room = await connect(token, Object.assign({ name: sid, eventListener, tracks: [] }, defaults));
+
+      // verify that we received early/connecting/open events.
+      assert(signalingEventsFired.find(event => event.name === 'early'));
+      assert(signalingEventsFired.find(event => event.name === 'connecting'));
+      assert(signalingEventsFired.find(event => event.name === 'open'));
     });
   });
 
@@ -1234,8 +1274,183 @@ describe('connect', function() {
       }
     });
   });
+
+  describe('opus dtx', () => {
+    [
+      [{}, 'when preferredAudioCodecs is not specified'],
+      [{ preferredAudioCodecs: ['isac', { codec: 'PCMU' }] }, 'when opus is not specified in preferredAudioCodecs'],
+      [{ preferredAudioCodecs: ['opus'] }, 'when opus is specified as a string'],
+      [{ preferredAudioCodecs: [{ codec: 'opus' }, 'isac'] }, 'when opus is specified as a setting and dtx is not specified'],
+      [{ preferredAudioCodecs: [{ codec: 'isac' }, { codec: 'opus', dtx: true }] }, 'when opus is specified as a setting and dtx is true'],
+      [{ preferredAudioCodecs: [{ codec: 'opus', dtx: false }, 'isac'] }, 'when opus is specified as a setting and dtx is false']
+    ].forEach(([preferredAudioCodecOptions, description]) => {
+      context(description, () => {
+        let peerConnections;
+        let sid;
+        let thisRoom;
+        let thoseRooms;
+
+        before(async () => {
+          [sid, thisRoom, thoseRooms, peerConnections] = await setup({
+            testOptions: preferredAudioCodecOptions
+          });
+
+          // NOTE(mmalavalli): Ensuring that the RTCPeerConnections are stable before
+          // verifying that opus DTX has been enabled/disabled. This was added to remove
+          // flakiness of this test in Circle.
+          await Promise.all(peerConnections.map(pc => pc.signalingState === 'stable' ? Promise.resolve() : new Promise(resolve => {
+            pc.addEventListener('signalingstatechange', () => pc.signalingState === 'stable' && resolve());
+          })));
+        });
+
+        const shouldApplyDtx = !(preferredAudioCodecOptions.preferredAudioCodecs
+          && preferredAudioCodecOptions.preferredAudioCodecs.some(codecOrSetting =>
+            codecOrSetting.codec === 'opus' && codecOrSetting.dtx === false));
+
+        it(`should ${shouldApplyDtx ? '' : 'not '}add "usedtx=1" to opus's fmtp line`, () => {
+          ['local', 'remote'].forEach(localOrRemote => {
+            flatMap(peerConnections, pc => getMediaSections(pc[`${localOrRemote}Description`].sdp, 'audio'))
+              .forEach(section => checkOpusDtxInMediaSection(section, shouldApplyDtx));
+          });
+        });
+
+        after(() => {
+          [thisRoom, ...thoseRooms].forEach(room => room && room.disconnect());
+          return completeRoom(sid);
+        });
+      });
+    });
+
+    // NOTE(mmalavalli): Skipping this test on Firefox because AudioContext.decodeAudioData()
+    // does not complete resulting in the test timing out.
+    // eslint-disable-next-line no-warning-comments
+    // TODO(mmalavalli): Enable on Firefox after figuring out and fixing the cause.
+    if (isFirefox) {
+      return;
+    }
+
+    combinationContext([
+      [
+        [true, false],
+        x => `When Alice ${x ? 'enables' : 'disables'} DTX`
+      ],
+      [
+        [true, false],
+        x => `When Bob ${x ? 'enables' : 'disables'} DTX`
+      ],
+    ], ([aliceDtx, bobDtx]) => {
+      let aliceBitratesSilence;
+      let aliceBitratesSpeech;
+      let aliceRoom;
+      let bobBitratesSilence;
+      let bobBitratesSpeech;
+      let bobRoom;
+      let roomSid;
+      let tracks;
+
+      before(async () => {
+        const { source, track } = await waitFor(
+          createFileAudioMedia('/static/speech.m4a'),
+          'Creating speech recording track');
+
+        tracks = [
+          track,
+          await waitFor(
+            createLocalVideoTrack(smallVideoConstraints),
+            'Creating video track')
+        ];
+
+        ({ aliceRoom, bobRoom, roomSid } = await waitFor(setupAliceAndBob({
+          aliceOptions: {
+            preferredAudioCodecs: [{ codec: 'opus', dtx: aliceDtx }],
+            tracks
+          },
+          bobOptions: {
+            preferredAudioCodecs: [{ codec: 'opus', dtx: bobDtx }],
+            tracks
+          }
+        }), 'Alice and Bob to join the Room'));
+
+        source.start();
+
+        // NOTE(mmalavalli): The recorded speech Track contains speech for the first 5 seconds,
+        // so the below bitrate samples represent speech.
+        [aliceBitratesSpeech, bobBitratesSpeech] = await waitFor(
+          [aliceRoom, bobRoom].map(room => pollOutgoingAudioBitrate(room, 5)),
+          'Alice and Bob to collect outgoing speech bitrate samples');
+
+        // NOTE(mmalavalli): The recorded speech Track contains silence for the next 5 seconds,
+        // so the below bitrate samples represent silence.
+        [aliceBitratesSilence, bobBitratesSilence] = await waitFor(
+          [aliceRoom, bobRoom].map(room => pollOutgoingAudioBitrate(room, 5)),
+          'Alice and Bob to collect outgoing silence bitrate samples');
+      });
+
+      it(`Alice should ${aliceDtx ? '' : 'not '}drastically reduce outgoing audio bitrate during silence and Bob should ${bobDtx ? '' : 'not '}drastically reduce outgoing audio bitrate during silence`, () => {
+        const bitrateTests = {
+          true: (bitrateSpeech, bitrateSilence) => {
+            return Math.round(100 * bitrateSilence / bitrateSpeech) <= 20;
+          },
+          false: (bitrateSpeech, bitrateSilence) => {
+            return Math.round(100 * bitrateSilence / bitrateSpeech) >= 80;
+          }
+        };
+
+        const aliceBitrateSilenceAvg = Math.round(aliceBitratesSilence.reduce((sum, bitrate) => sum + bitrate, 0) / aliceBitratesSpeech.length);
+        const aliceBitrateSpeechAvg = Math.round(aliceBitratesSpeech.reduce((sum, bitrate) => sum + bitrate, 0) / aliceBitratesSpeech.length);
+        console.log(`Avg. bitrate reduction during silence (Alice): ${Math.round(100 * aliceBitrateSilenceAvg / aliceBitrateSpeechAvg)}`);
+        assert(bitrateTests[aliceDtx](aliceBitrateSpeechAvg, aliceBitrateSilenceAvg));
+
+        const bobBitrateSilenceAvg = Math.round(bobBitratesSilence.reduce((sum, bitrate) => sum + bitrate, 0) / bobBitratesSpeech.length);
+        const bobBitrateSpeechAvg = Math.round(bobBitratesSpeech.reduce((sum, bitrate) => sum + bitrate, 0) / bobBitratesSpeech.length);
+        console.log(`Avg. bitrate reduction during silence (Bob): ${Math.round(100 * bobBitrateSilenceAvg / bobBitrateSpeechAvg)}`);
+        assert(bitrateTests[bobDtx](bobBitrateSpeechAvg, bobBitrateSilenceAvg));
+      });
+
+      after(() => {
+        [aliceRoom, bobRoom].forEach(room => room && room.disconnect());
+        if (tracks) {
+          tracks.forEach(track => track.stop());
+        }
+        return completeRoom(roomSid);
+      });
+    });
+  });
 });
+
+function checkOpusDtxInMediaSection(section, shouldApplyDtx) {
+  const codecMap = createCodecMapForMediaSection(section);
+  const opusPts = codecMap.get('opus');
+  if (!opusPts) {
+    assert(!/usedtx=1/.test(section));
+    return;
+  }
+  const fmtpAttributes = section.match(new RegExp(`^a=fmtp:${opusPts[0]} (.+)$`, 'm'))[1].split(';');
+  assert(shouldApplyDtx ? fmtpAttributes.includes('usedtx=1') : !fmtpAttributes.includes('usedtx=1'));
+}
 
 function getPayloadTypes(mediaSection) {
   return [...createPtToCodecName(mediaSection).keys()];
+}
+
+async function pollOutgoingAudioBitrate(room, nSamples) {
+  const samples = [];
+  if (nSamples <= 0) {
+    return samples;
+  }
+  let [{ localAudioTrackStats: [stats] }] = await room.getStats();
+  let { bytesSent: curBytesSent } = stats || { bytesSent: 0 };
+
+  return new Promise(resolve => {
+    const pollInterval = setInterval(async () => {
+      const [{ localAudioTrackStats: [{ bytesSent }] }] = await room.getStats();
+      samples.push((bytesSent - curBytesSent) * 8);
+      curBytesSent = bytesSent;
+      nSamples--;
+      if (nSamples <= 0) {
+        clearInterval(pollInterval);
+        resolve(samples);
+      }
+    }, 1000);
+  });
 }
