@@ -115,7 +115,7 @@ describe('BandwidthProfileOptions', function() {
         ], `all tracks to get published and subscribed: ${thisRoom.sid}`);
 
         const [aliceRemoteVideoTrack, bobRemoteVideoTrack] = [aliceRemote, bobRemote].map(({ videoTracks }) => {
-          return [...videoTracks.values()][0].track;
+          return Array.from(videoTracks.values())[0].track;
         });
 
         const switched = {

@@ -22,6 +22,7 @@ export class Room extends EventEmitter {
   participants: Map<Participant.SID, RemoteParticipant>;
   sid: Room.SID;
   state: string;
+  mosScore: number;
 
   disconnect(): Room;
   getStats(): Promise<StatsReport[]>;
