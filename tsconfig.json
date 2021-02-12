@@ -3,6 +3,7 @@
     "outDir": "./es5",
     "allowJs": true,
     "target": "es5",
+    "downlevelIteration": true,
     "noImplicitAny": true,
     "noImplicitThis": true,
     "strictNullChecks": true,
