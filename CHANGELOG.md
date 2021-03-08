@@ -1,4 +1,4 @@
-The Twilio Programmable Video SDKs use [Semantic Versioning](http://www.semver.org/). Twilio supports version N-1 for 12 months after the first GA release of version N. We recommend you upgrade to the latest version as soon as possible to avoid any breaking changes. Version 2.x is the lastest Video JavaScript SDK.
+The Twilio Programmable Video SDKs use [Semantic Versioning](http://www.semver.org/). Twilio supports version N-1 for 12 months after the first GA release of version N. We recommend you upgrade to the latest version as soon as possible to avoid any breaking changes. Version 2.x is the latest Video JavaScript SDK.
 
 **Support for the 1.x version ended on December 4th, 2020**. Check [this guide](https://www.twilio.com/docs/video/migrating-1x-2x) to plan your migration to the latest 2.x version.
 
@@ -347,7 +347,7 @@ New Features
   LocalTrack that is published to a Room, you would have to unpublish it, create a new
   LocalTrack with the desired MediaTrackConstraints and publish it to the Room. Now,
   you can just `restart` the LocalTrack with the desired MediaTrackConstraints. For details,
-  please refer to the [LocaAudioTrack.restart()](https://media.twiliocdn.com/sdk/js/video/releases/2.7.0/docs/LocalAudioTrack.html#restart__anchor)
+  please refer to the [LocalAudioTrack.restart()](https://media.twiliocdn.com/sdk/js/video/releases/2.7.0/docs/LocalAudioTrack.html#restart__anchor)
   and [LocalVideoTrack.restart()](https://media.twiliocdn.com/sdk/js/video/releases/2.7.0/docs/LocalVideoTrack.html#restart__anchor)
   documentation. (JSDK-2870)
 
