@@ -2,27 +2,78 @@ The Twilio Programmable Video SDKs use [Semantic Versioning](http://www.semver.o
 
 **Support for the 1.x version ended on December 4th, 2020**. Check [this guide](https://www.twilio.com/docs/video/migrating-1x-2x) to plan your migration to the latest 2.x version.
 
-2.12.0 (In Progress)
-====================
+2.13.0 (In Progress)
+=====================
 
 New Features
 ------------
 
-- You can now connect to a Group Room with Maximum Participants between 50 and 100 (Large Group Rooms).
-  Large Group Rooms are different from the other types of Rooms in the following ways:
+**Video Processor API Pilot**
+- You can now register a `VideoProcessor` with a VideoTrack in order to process its video frames. In a LocalVideoTrack, video frames are processed before being sent to the encoder. In a RemoteVideoTrack, video frames are processed before being sent to the attached `<video>` element(s). The `VideoProcessor` should implement the interface shown below. (VIDEO-3560, VIDEO-3561)
+
+  ```ts
+  abstract class VideoProcessor {
+    abstract processFrame(inputFrame: OffscreenCanvas)
+      : Promise<OffscreenCanvas | null>
+      | OffscreenCanvas | null;
+  }
+  ```
+
+  A VideoTrack provides new methods `addProcessor` and `removeProcessor` which can be used to add and remove a VideoProcessor. It also provides a new property `processor` which points to the current VideoProcessor being used by the VideoTrack. For example, you can toggle a blur filter on a LocalVideoTrack as shown below.
+
+  ```ts
+  import { createLocalVideoTrack } from 'twilio-video';
+
+  class BlurVideoProcessor {
+    private readonly _outputFrameCtx: CanvasRenderingContext2D;
+    private readonly _outputFrame: OffscreenCanvas;
+
+    constructor(width: number, height: number, blurRadius: number) {
+      this._outputFrame = new OffscreenCanvas(width, height);
+      this._outputFrameCtx = this._outputFrame.getContext('2d');
+      this._outputFrameCtx.filter = `blur(${blurRadius}px)`;
+    }
+
+    processFrame(inputFrame: OffscreenCanvas) {
+      this._outputFrameCtx.drawImage(inputFrame, 0, 0);
+      return this._outputFrame;
+    }
+  }
+
+  createLocalVideoTrack({
+    width: 1280,
+    height: 720
+  }).then(track => {
+    const processor = new BlurVideoProcessor(1280, 720, 5);
+    document.getElementById('preview').appendChild(track.attach());
+    document.getElementById('toggle-blur').onclick = () => track.processor
+      ? track.removeProcessor(processor)
+      : track.addProcessor(processor);
+  });
+  ```
+
+2.12.0 (Feb 10, 2020)
+=====================
+
+New Features
+------------
+
+**100 Participant Rooms Pilot**
+- In this pilot program developers can connect to a Group Room with Maximum Participants set between 50 and 100.
+  A Room created with Max Participants greater than 50 is structured to support a small number of presenters and a large number of viewers. It has the following behavioral differences compared to regular Group Rooms:
   - "participantConnected" event is raised on the Room when a RemoteParticipant
     publishes the first LocalTrack.
   - "participantDisconnected" event is raised on the Room when a RemoteParticipant
     stops publishing all of its LocalTracks.
-  - The total number of published Tracks in the Room cannot exceed 16. Any attempt
+  - The total number of published Tracks in the Room cannot exceed 16 at any one time. Any attempt
     to publish more Tracks will be rejected with a `ParticipantMaxTracksExceededError`. (JSDK-3021)
 
-  NOTE: Large Group Rooms is currently in **beta**.
 
 Bug Fixes
 ---------
 
 - Fixed a bug where calling `LocalMediaTrack.restart()` logged a warning about PeerConnection being closed in Peer to Peer Rooms. (JSDK-2912)
+- Fixed a race condition that sometimes caused `switchedOff` event for `RemoteVideoTrack` to not get emitted, which also resulted in wrong value for `RemoteVideoTrack.isSwitchedOff` property. (VIDEO-3695)
 
 2.11.0 (January 26, 2021)
 =========================
